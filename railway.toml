@@ -3,4 +3,4 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0"
+startCommand = "sh -c 'streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0'"
