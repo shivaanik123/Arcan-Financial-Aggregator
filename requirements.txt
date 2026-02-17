@@ -1,2 +1,7 @@
 streamlit
 PyPDF2
+pdfplumber
+box-sdk-gen
+requests
+openpyxl
+reportlab

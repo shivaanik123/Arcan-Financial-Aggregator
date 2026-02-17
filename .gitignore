@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 Financial Reports/
 merge_pdfs.py
+
+# Tokens and secrets
+.box_tokens.json
+box_config.json
