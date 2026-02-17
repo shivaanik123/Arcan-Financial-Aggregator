@@ -16,8 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app files
 COPY . .
 
+# Set environment variables
+ENV PORT=8501
+
 # Expose port
 EXPOSE 8501
 
-# Run streamlit (use shell form to allow variable expansion)
-CMD streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0
+# Run streamlit
+ENTRYPOINT ["sh", "-c", "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0"]
