@@ -262,16 +262,15 @@ def merge_excel_files(t12_bytes, ytd_bytes, gl_bytes):
     return final_output.getvalue()
 
 def save_tokens(access_token, refresh_token):
-    """Save tokens to file."""
-    with open(TOKEN_FILE, "w") as f:
-        json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
+    """Save tokens to session state."""
+    st.session_state["box_tokens"] = {
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }
 
 def load_tokens():
-    """Load tokens from file."""
-    if TOKEN_FILE.exists():
-        with open(TOKEN_FILE, "r") as f:
-            return json.load(f)
-    return None
+    """Load tokens from session state."""
+    return st.session_state.get("box_tokens", None)
 
 def get_box_client(access_token):
     """Get Box client with access token."""
@@ -446,12 +445,15 @@ tokens = load_tokens()
 box_connected = False
 
 if tokens and tokens.get("refresh_token"):
-    # Try to refresh token
+    # Try to refresh token (Box tokens expire after 60 min)
     new_access, new_refresh = refresh_access_token(tokens["refresh_token"])
     if new_access:
         save_tokens(new_access, new_refresh)
         tokens = {"access_token": new_access, "refresh_token": new_refresh}
         box_connected = True
+    else:
+        # Refresh failed - token expired, need to reconnect
+        box_connected = False
 elif tokens and tokens.get("access_token"):
     box_connected = True
 
@@ -462,7 +464,8 @@ with st.sidebar:
     if box_connected:
         st.success("Connected to Box")
         if st.button("Disconnect"):
-            TOKEN_FILE.unlink(missing_ok=True)
+            if "box_tokens" in st.session_state:
+                del st.session_state["box_tokens"]
             st.rerun()
     else:
         st.warning("Not connected to Box")
