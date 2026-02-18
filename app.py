@@ -262,15 +262,16 @@ def merge_excel_files(t12_bytes, ytd_bytes, gl_bytes):
     return final_output.getvalue()
 
 def save_tokens(access_token, refresh_token):
-    """Save tokens to session state (per-user)."""
-    st.session_state["box_tokens"] = {
-        "access_token": access_token,
-        "refresh_token": refresh_token
-    }
+    """Save tokens to file."""
+    with open(TOKEN_FILE, "w") as f:
+        json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
 
 def load_tokens():
-    """Load tokens from session state (per-user)."""
-    return st.session_state.get("box_tokens", None)
+    """Load tokens from file."""
+    if TOKEN_FILE.exists():
+        with open(TOKEN_FILE, "r") as f:
+            return json.load(f)
+    return None
 
 def get_box_client(access_token):
     """Get Box client with access token."""
@@ -461,8 +462,7 @@ with st.sidebar:
     if box_connected:
         st.success("Connected to Box")
         if st.button("Disconnect"):
-            if "box_tokens" in st.session_state:
-                del st.session_state["box_tokens"]
+            TOKEN_FILE.unlink(missing_ok=True)
             st.rerun()
     else:
         st.warning("Not connected to Box")
