@@ -11,8 +11,12 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+import extra_streamlit_components as stx
 
 st.set_page_config(page_title="Arcan Financial Report Aggregator", layout="centered")
+
+# Cookie manager for persistent Box login
+cookie_manager = stx.CookieManager()
 
 # Box configuration (use environment variables in production)
 import os
@@ -262,15 +266,33 @@ def merge_excel_files(t12_bytes, ytd_bytes, gl_bytes):
     return final_output.getvalue()
 
 def save_tokens(access_token, refresh_token):
-    """Save tokens to session state."""
+    """Save tokens to browser cookies (persists across sessions)."""
+    cookie_manager.set("box_access_token", access_token, key="set_access")
+    cookie_manager.set("box_refresh_token", refresh_token, key="set_refresh")
+    # Also save to session state for immediate use
     st.session_state["box_tokens"] = {
         "access_token": access_token,
         "refresh_token": refresh_token
     }
 
 def load_tokens():
-    """Load tokens from session state."""
-    return st.session_state.get("box_tokens", None)
+    """Load tokens from cookies or session state."""
+    # First check session state
+    if st.session_state.get("box_tokens"):
+        return st.session_state["box_tokens"]
+
+    # Then check cookies
+    access_token = cookie_manager.get("box_access_token")
+    refresh_token = cookie_manager.get("box_refresh_token")
+
+    if access_token and refresh_token:
+        st.session_state["box_tokens"] = {
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }
+        return st.session_state["box_tokens"]
+
+    return None
 
 def get_box_client(access_token):
     """Get Box client with access token."""
@@ -484,6 +506,8 @@ with st.sidebar:
         if st.button("Disconnect"):
             if "box_tokens" in st.session_state:
                 del st.session_state["box_tokens"]
+            cookie_manager.delete("box_access_token", key="del_access")
+            cookie_manager.delete("box_refresh_token", key="del_refresh")
             st.rerun()
     else:
         st.warning("Not connected to Box")
