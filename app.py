@@ -23,17 +23,25 @@ BOX_ROOT_FOLDER_ID = os.environ.get("BOX_ROOT_FOLDER_ID", "7627162890")
 BOX_REDIRECT_URI = os.environ.get("BOX_REDIRECT_URI", "http://localhost:8501")
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:urMzbfSCtHlGoJWoNnqSYALFYImWQplu@postgres.railway.internal:5432/railway")
 
-# Users who can use this app
-USERS = ["Shivaani", "Abby", "Jerren", "Dylan", "Carter"]
-
 # Initialize database
 def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
+        # Check if old schema exists (username column) and migrate if needed
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'box_tokens' AND column_name = 'username'
+        """)
+        if cur.fetchone():
+            # Old schema exists, drop and recreate
+            cur.execute("DROP TABLE box_tokens")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS box_tokens (
-                username VARCHAR(100) PRIMARY KEY,
+                box_user_id VARCHAR(100) PRIMARY KEY,
+                box_user_name VARCHAR(255),
+                box_user_email VARCHAR(255),
                 access_token TEXT,
                 refresh_token TEXT
             )
@@ -285,57 +293,77 @@ def merge_excel_files(t12_bytes, ytd_bytes, gl_bytes):
     final_output.seek(0)
     return final_output.getvalue()
 
-def save_tokens(access_token, refresh_token, username=None):
-    """Save tokens to database for the current user."""
-    if not username:
-        username = st.session_state.get("current_user")
-    if not username:
+def get_box_user_info(access_token):
+    """Get the current Box user's info."""
+    import requests
+    response = requests.get(
+        "https://api.box.com/2.0/users/me",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    if response.status_code == 200:
+        data = response.json()
+        return {
+            "id": data.get("id"),
+            "name": data.get("name"),
+            "email": data.get("login")
+        }
+    return None
+
+def save_tokens(access_token, refresh_token, box_user_id=None, box_user_name=None, box_user_email=None):
+    """Save tokens to database for the Box user."""
+    if not box_user_id:
+        box_user_id = st.session_state.get("box_user_id")
+    if not box_user_id:
         return
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO box_tokens (username, access_token, refresh_token)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (username) DO UPDATE SET
+            INSERT INTO box_tokens (box_user_id, box_user_name, box_user_email, access_token, refresh_token)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (box_user_id) DO UPDATE SET
+                box_user_name = EXCLUDED.box_user_name,
+                box_user_email = EXCLUDED.box_user_email,
                 access_token = EXCLUDED.access_token,
                 refresh_token = EXCLUDED.refresh_token
-        """, (username, access_token, refresh_token))
+        """, (box_user_id, box_user_name, box_user_email, access_token, refresh_token))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
         st.error(f"Error saving tokens: {e}")
 
-def load_tokens(username=None):
-    """Load tokens from database for the current user."""
-    if not username:
-        username = st.session_state.get("current_user")
-    if not username:
+def load_tokens_by_id(box_user_id):
+    """Load tokens from database for a specific Box user."""
+    if not box_user_id:
         return None
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        cur.execute("SELECT access_token, refresh_token FROM box_tokens WHERE username = %s", (username,))
+        cur.execute("SELECT access_token, refresh_token, box_user_name, box_user_email FROM box_tokens WHERE box_user_id = %s", (box_user_id,))
         row = cur.fetchone()
         cur.close()
         conn.close()
         if row:
-            return {"access_token": row[0], "refresh_token": row[1]}
+            return {"access_token": row[0], "refresh_token": row[1], "name": row[2], "email": row[3]}
     except Exception as e:
         st.error(f"Error loading tokens: {e}")
     return None
 
-def delete_tokens(username=None):
-    """Delete tokens for the current user."""
-    if not username:
-        username = st.session_state.get("current_user")
-    if not username:
+def load_tokens():
+    """Load tokens from database for the current session user."""
+    box_user_id = st.session_state.get("box_user_id")
+    return load_tokens_by_id(box_user_id)
+
+def delete_tokens():
+    """Delete tokens for the current Box user."""
+    box_user_id = st.session_state.get("box_user_id")
+    if not box_user_id:
         return
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        cur.execute("DELETE FROM box_tokens WHERE username = %s", (username,))
+        cur.execute("DELETE FROM box_tokens WHERE box_user_id = %s", (box_user_id,))
         conn.commit()
         cur.close()
         conn.close()
@@ -521,56 +549,60 @@ if "code" in query_params:
     auth_code = query_params["code"]
     try:
         access_token, refresh_token = exchange_code_for_tokens(auth_code)
-        save_tokens(access_token, refresh_token)
+        # Get Box user info
+        user_info = get_box_user_info(access_token)
+        if user_info:
+            # Save user info to session state
+            st.session_state["box_user_id"] = user_info["id"]
+            st.session_state["box_user_name"] = user_info["name"]
+            st.session_state["box_user_email"] = user_info["email"]
+            # Save tokens with user info
+            save_tokens(access_token, refresh_token, user_info["id"], user_info["name"], user_info["email"])
         st.query_params.clear()
         st.rerun()
     except Exception as e:
         st.error(f"Failed to connect: {str(e)}")
         st.query_params.clear()
 
-# Sidebar for user selection and Box auth
+# Sidebar for Box auth
 with st.sidebar:
-    st.header("User")
-
-    # User selection
-    if "current_user" not in st.session_state:
-        st.session_state["current_user"] = USERS[0]
-
-    selected_user = st.selectbox("Select your name", USERS, index=USERS.index(st.session_state["current_user"]))
-    if selected_user != st.session_state["current_user"]:
-        st.session_state["current_user"] = selected_user
-        st.rerun()
-
-    st.markdown("---")
     st.header("Box Connection")
 
-    # Check for Box connection for current user
-    tokens = load_tokens()
+    # Check for Box connection
     box_connected = False
+    tokens = None
+    box_user_name = st.session_state.get("box_user_name")
 
-    if tokens and tokens.get("refresh_token"):
-        # Try to refresh token (Box tokens expire after 60 min)
-        new_access, new_refresh = refresh_access_token(tokens["refresh_token"])
-        if new_access:
-            save_tokens(new_access, new_refresh)
-            tokens = {"access_token": new_access, "refresh_token": new_refresh}
+    # If we have a box_user_id in session, try to load/refresh tokens
+    if st.session_state.get("box_user_id"):
+        tokens = load_tokens()
+        if tokens and tokens.get("refresh_token"):
+            # Try to refresh token (Box tokens expire after 60 min)
+            new_access, new_refresh = refresh_access_token(tokens["refresh_token"])
+            if new_access:
+                save_tokens(new_access, new_refresh, st.session_state["box_user_id"],
+                           st.session_state.get("box_user_name"), st.session_state.get("box_user_email"))
+                tokens = {"access_token": new_access, "refresh_token": new_refresh}
+                box_connected = True
+            else:
+                # Refresh failed - token expired, need to reconnect
+                box_connected = False
+        elif tokens and tokens.get("access_token"):
             box_connected = True
-        else:
-            # Refresh failed - token expired, need to reconnect
-            box_connected = False
-    elif tokens and tokens.get("access_token"):
-        box_connected = True
 
-    if box_connected:
-        st.success(f"Connected as {st.session_state['current_user']}")
+    if box_connected and box_user_name:
+        st.success(f"Connected as {box_user_name}")
         if st.button("Disconnect"):
             delete_tokens()
+            st.session_state.pop("box_user_id", None)
+            st.session_state.pop("box_user_name", None)
+            st.session_state.pop("box_user_email", None)
             st.rerun()
     else:
         st.warning("Not connected to Box")
-
+        st.caption("Click below to log in with your Box account")
         auth_url = f"https://account.box.com/api/oauth2/authorize?client_id={BOX_CLIENT_ID}&redirect_uri={BOX_REDIRECT_URI}&response_type=code"
-        st.link_button("Connect to Box", auth_url)
+        st.link_button("Log in with Box", auth_url)
 
 # Display logo centered
 logo_path = Path(__file__).parent / "logo.png"
