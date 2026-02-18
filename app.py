@@ -16,11 +16,35 @@ st.set_page_config(page_title="Arcan Financial Report Aggregator", layout="cente
 
 # Box configuration (use environment variables in production)
 import os
+import psycopg2
 BOX_CLIENT_ID = os.environ.get("BOX_CLIENT_ID", "bfw6aqc5eaezh292nh638mss04hzhpxm")
 BOX_CLIENT_SECRET = os.environ.get("BOX_CLIENT_SECRET", "J9ao1WBpsjbU4QUBPSTkq1vMxeNgHtGf")
 BOX_ROOT_FOLDER_ID = os.environ.get("BOX_ROOT_FOLDER_ID", "7627162890")
 BOX_REDIRECT_URI = os.environ.get("BOX_REDIRECT_URI", "http://localhost:8501")
-TOKEN_FILE = Path(__file__).parent / ".box_tokens.json"
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:urMzbfSCtHlGoJWoNnqSYALFYImWQplu@postgres.railway.internal:5432/railway")
+
+# Users who can use this app
+USERS = ["Shivaani", "User 2", "User 3", "User 4"]
+
+# Initialize database
+def init_db():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS box_tokens (
+                username VARCHAR(100) PRIMARY KEY,
+                access_token TEXT,
+                refresh_token TEXT
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Database error: {e}")
+
+init_db()
 
 MONTH_NAMES = {
     "01": "January", "02": "February", "03": "March", "04": "April",
@@ -261,17 +285,62 @@ def merge_excel_files(t12_bytes, ytd_bytes, gl_bytes):
     final_output.seek(0)
     return final_output.getvalue()
 
-def save_tokens(access_token, refresh_token):
-    """Save tokens to file (persists across refreshes)."""
-    with open(TOKEN_FILE, "w") as f:
-        json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
+def save_tokens(access_token, refresh_token, username=None):
+    """Save tokens to database for the current user."""
+    if not username:
+        username = st.session_state.get("current_user")
+    if not username:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO box_tokens (username, access_token, refresh_token)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (username) DO UPDATE SET
+                access_token = EXCLUDED.access_token,
+                refresh_token = EXCLUDED.refresh_token
+        """, (username, access_token, refresh_token))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error saving tokens: {e}")
 
-def load_tokens():
-    """Load tokens from file."""
-    if TOKEN_FILE.exists():
-        with open(TOKEN_FILE, "r") as f:
-            return json.load(f)
+def load_tokens(username=None):
+    """Load tokens from database for the current user."""
+    if not username:
+        username = st.session_state.get("current_user")
+    if not username:
+        return None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT access_token, refresh_token FROM box_tokens WHERE username = %s", (username,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row:
+            return {"access_token": row[0], "refresh_token": row[1]}
+    except Exception as e:
+        st.error(f"Error loading tokens: {e}")
     return None
+
+def delete_tokens(username=None):
+    """Delete tokens for the current user."""
+    if not username:
+        username = st.session_state.get("current_user")
+    if not username:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM box_tokens WHERE username = %s", (username,))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error deleting tokens: {e}")
 
 def get_box_client(access_token):
     """Get Box client with access token."""
@@ -459,31 +528,43 @@ if "code" in query_params:
         st.error(f"Failed to connect: {str(e)}")
         st.query_params.clear()
 
-# Check for Box connection
-tokens = load_tokens()
-box_connected = False
-
-if tokens and tokens.get("refresh_token"):
-    # Try to refresh token (Box tokens expire after 60 min)
-    new_access, new_refresh = refresh_access_token(tokens["refresh_token"])
-    if new_access:
-        save_tokens(new_access, new_refresh)
-        tokens = {"access_token": new_access, "refresh_token": new_refresh}
-        box_connected = True
-    else:
-        # Refresh failed - token expired, need to reconnect
-        box_connected = False
-elif tokens and tokens.get("access_token"):
-    box_connected = True
-
-# Sidebar for Box auth
+# Sidebar for user selection and Box auth
 with st.sidebar:
+    st.header("User")
+
+    # User selection
+    if "current_user" not in st.session_state:
+        st.session_state["current_user"] = USERS[0]
+
+    selected_user = st.selectbox("Select your name", USERS, index=USERS.index(st.session_state["current_user"]))
+    if selected_user != st.session_state["current_user"]:
+        st.session_state["current_user"] = selected_user
+        st.rerun()
+
+    st.markdown("---")
     st.header("Box Connection")
 
+    # Check for Box connection for current user
+    tokens = load_tokens()
+    box_connected = False
+
+    if tokens and tokens.get("refresh_token"):
+        # Try to refresh token (Box tokens expire after 60 min)
+        new_access, new_refresh = refresh_access_token(tokens["refresh_token"])
+        if new_access:
+            save_tokens(new_access, new_refresh)
+            tokens = {"access_token": new_access, "refresh_token": new_refresh}
+            box_connected = True
+        else:
+            # Refresh failed - token expired, need to reconnect
+            box_connected = False
+    elif tokens and tokens.get("access_token"):
+        box_connected = True
+
     if box_connected:
-        st.success("Connected to Box")
+        st.success(f"Connected as {st.session_state['current_user']}")
         if st.button("Disconnect"):
-            TOKEN_FILE.unlink(missing_ok=True)
+            delete_tokens()
             st.rerun()
     else:
         st.warning("Not connected to Box")

@@ -5,3 +5,4 @@ box-sdk-gen
 requests
 openpyxl
 reportlab
+psycopg2-binary
