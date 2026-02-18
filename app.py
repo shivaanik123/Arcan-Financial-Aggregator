@@ -882,6 +882,10 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
             progress_bar = st.progress(0)
             status_text = st.empty()
 
+            # Clear previous results
+            st.session_state["upload_results"] = None
+            st.session_state["excel_results"] = None
+
             total_properties = len(properties)
 
             for idx, (prop_name, files) in enumerate(sorted(properties.items())):
@@ -1017,55 +1021,66 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
             status_text.empty()
             progress_bar.empty()
 
-            # Get folder link (all files go to same folder)
-            folder_id = results[0].get("folder_id") if results else None
-            folder_name = results[0].get("folder") if results else None
-
-            st.success(f"Uploaded to Box: {year} / {folder_name}")
-            if folder_id:
-                st.markdown(f"[Open folder in Box](https://app.box.com/folder/{folder_id})")
-
-            st.markdown("---")
-
-            # Show PDF downloads
-            st.markdown("**PDF Packages**")
-            for result in results:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    if result.get("status") == "success":
-                        st.markdown(f"{result['property']}")
-                    else:
-                        st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
-                with col2:
-                    st.download_button(
-                        label="⬇",
-                        data=result["data"],
-                        file_name=result["filename"],
-                        mime="application/pdf",
-                        key=f"download_{result['property']}"
-                    )
-
-            # Show Excel downloads
-            if excel_results:
-                st.markdown("")
-                st.markdown("**Excel Packages**")
-                for result in excel_results:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        if result.get("status") == "success":
-                            st.markdown(f"{result['property']}")
-                        else:
-                            st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
-                    with col2:
-                        st.download_button(
-                            label="⬇",
-                            data=result["data"],
-                            file_name=result["filename"],
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"download_excel_{result['property']}"
-                        )
+            # Save results to session state so they persist
+            st.session_state["upload_results"] = results
+            st.session_state["excel_results"] = excel_results
+            st.session_state["folder_id"] = results[0].get("folder_id") if results else None
+            st.session_state["folder_name"] = results[0].get("folder") if results else None
+            st.session_state["upload_year"] = year
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
             import traceback
             st.code(traceback.format_exc())
+
+# Display results from session state (persists across reruns)
+if st.session_state.get("upload_results"):
+    results = st.session_state["upload_results"]
+    excel_results = st.session_state.get("excel_results", [])
+    folder_id = st.session_state.get("folder_id")
+    folder_name = st.session_state.get("folder_name")
+    upload_year = st.session_state.get("upload_year")
+
+    st.success(f"Uploaded to Box: {upload_year} / {folder_name}")
+    if folder_id:
+        st.markdown(f"[Open folder in Box](https://app.box.com/folder/{folder_id})")
+
+    st.markdown("---")
+
+    # Show PDF downloads
+    st.markdown("**PDF Packages**")
+    for i, result in enumerate(results):
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            if result.get("status") == "success":
+                st.markdown(f"{result['property']}")
+            else:
+                st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
+        with col2:
+            st.download_button(
+                label="⬇",
+                data=result["data"],
+                file_name=result["filename"],
+                mime="application/pdf",
+                key=f"download_pdf_{i}"
+            )
+
+    # Show Excel downloads
+    if excel_results:
+        st.markdown("")
+        st.markdown("**Excel Packages**")
+        for i, result in enumerate(excel_results):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                if result.get("status") == "success":
+                    st.markdown(f"{result['property']}")
+                else:
+                    st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
+            with col2:
+                st.download_button(
+                    label="⬇",
+                    data=result["data"],
+                    file_name=result["filename"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"download_excel_{i}"
+                )
