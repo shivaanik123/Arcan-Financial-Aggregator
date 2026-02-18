@@ -423,22 +423,7 @@ def upload_to_box(access_token, file_data, filename, month_number, year):
     if response.status_code == 201:
         return response.json(), folder_name, month_folder_id
     elif response.status_code == 409:
-        # File already exists - update it instead
-        try:
-            # Get existing file ID
-            conflict_info = response.json()
-            existing_file_id = conflict_info.get("context_info", {}).get("conflicts", [{}])[0].get("id")
-            if existing_file_id:
-                # Upload new version
-                update_response = requests.post(
-                    f"https://upload.box.com/api/2.0/files/{existing_file_id}/content",
-                    headers=headers,
-                    files={"file": (filename, file_data)}
-                )
-                if update_response.status_code == 201:
-                    return update_response.json(), folder_name, month_folder_id
-        except:
-            pass
+        # File already exists - skip it (don't overwrite)
         return {"status": "already exists"}, folder_name, month_folder_id
     else:
         raise Exception(f"Failed to upload (status {response.status_code}): {response.text}")
