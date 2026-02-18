@@ -921,6 +921,9 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
                 # Upload PDF to Box
                 try:
                     tokens = load_tokens()
+                    if not tokens:
+                        raise Exception("No Box tokens found - please reconnect to Box")
+                    st.info(f"Uploading {pdf_filename}...")
                     uploaded_result, folder_name, month_folder_id = upload_to_box(
                         tokens["access_token"],
                         output.getvalue(),
@@ -928,6 +931,7 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
                         month_number,
                         year
                     )
+                    st.info(f"Upload result: {uploaded_result.get('status', 'success')}")
                     # Extract file ID from upload response
                     file_id = None
                     if isinstance(uploaded_result, dict) and "entries" in uploaded_result:
