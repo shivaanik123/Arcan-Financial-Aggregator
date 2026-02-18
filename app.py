@@ -422,8 +422,26 @@ def upload_to_box(access_token, file_data, filename, month_number, year):
     if response.status_code == 201:
         return response.json(), folder_name, month_folder_id
     elif response.status_code == 409:
-        # File already exists - skip it (don't overwrite)
-        return {"status": "already exists"}, folder_name, month_folder_id
+        # File already exists - upload with a new name (add timestamp)
+        from datetime import datetime
+        name_parts = filename.rsplit('.', 1)
+        timestamp = datetime.now().strftime("%H%M%S")
+        if len(name_parts) == 2:
+            new_filename = f"{name_parts[0]}_{timestamp}.{name_parts[1]}"
+        else:
+            new_filename = f"{filename}_{timestamp}"
+
+        # Try uploading with new name
+        retry_response = requests.post(
+            "https://upload.box.com/api/2.0/files/content",
+            headers=headers,
+            data={"attributes": json.dumps({"name": new_filename, "parent": {"id": month_folder_id}})},
+            files={"file": (new_filename, file_data)}
+        )
+        if retry_response.status_code == 201:
+            return retry_response.json(), folder_name, month_folder_id
+        else:
+            return {"status": "uploaded as " + new_filename}, folder_name, month_folder_id
     else:
         raise Exception(f"Failed to upload (status {response.status_code}): {response.text}")
 
