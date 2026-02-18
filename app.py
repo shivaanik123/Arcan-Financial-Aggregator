@@ -1010,7 +1010,7 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
                     if result.get("status") == "success":
                         st.markdown(f"{result['property']}")
                     else:
-                        st.markdown(f"~~{result['property']}~~ *(failed)*")
+                        st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
                 with col2:
                     st.download_button(
                         label="⬇",
@@ -1030,7 +1030,7 @@ if st.button("Merge & Upload to Box", type="primary", use_container_width=True):
                         if result.get("status") == "success":
                             st.markdown(f"{result['property']}")
                         else:
-                            st.markdown(f"~~{result['property']}~~ *(failed)*")
+                            st.error(f"{result['property']}: {result.get('error', 'Unknown error')}")
                     with col2:
                         st.download_button(
                             label="⬇",
