@@ -24,7 +24,7 @@ BOX_REDIRECT_URI = os.environ.get("BOX_REDIRECT_URI", "http://localhost:8501")
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:urMzbfSCtHlGoJWoNnqSYALFYImWQplu@postgres.railway.internal:5432/railway")
 
 # Users who can use this app
-USERS = ["Shivaani", "User 2", "User 3", "User 4"]
+USERS = ["Shivaani", "Abby", "Jerren", "Dylan", "Carter"]
 
 # Initialize database
 def init_db():
