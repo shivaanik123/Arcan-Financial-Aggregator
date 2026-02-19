@@ -566,6 +566,9 @@ if "code" in query_params:
 
 # Sidebar for Box auth
 with st.sidebar:
+    box_logo_path = Path(__file__).parent / "box-logo.png"
+    if box_logo_path.exists():
+        st.image(str(box_logo_path), width=80)
     st.header("Box Connection")
 
     # Check for Box connection
